@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-if [[ -z "${AWS_CONFG_PATH}" ]]; then
+if [[ -z "${AWS_CONFIG_PATH}" ]]; then
   AWS_CONFIG_PATH="$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
 fi
 
@@ -12,19 +12,22 @@ if [[ -f "${AWS_CONFIG}" ]]; then
   . "${AWS_CONFIG}"
 fi
 
+DEFAULT_TAGS="${DEFAULT_TAGS-CreatedBy=AutomatedBackup}"
 VOLUMES=()
 INSTANCES=()
 TAGLIST=()
 TAGMAP=()
 SNAPSHOT_FILTERS=()
+
 MAX_AGE=${MAX_AGE:-'- 7 days'}
 MAX_DATE=${MAX_DATE:-}
 DEBUG='1'
-
 export AWS_DEFAULT_OUTPUT=text
 
 declare -A VOLUME_TAGS
 declare -A SNAPSHOT_TAGS
+
+EXTRA_TAG_LIST="${DEFAULT_TAGS}"
 
 __parse_commandline() {
   POSITIONAL=()
@@ -55,6 +58,10 @@ __parse_commandline() {
         ;;
       --tag-map)
         TAGMAP+=("$2")
+        shift
+        ;;
+      --extra-tags)
+        EXTRA_TAG_LIST="${DEFAULT_TAGS} $2"
         shift
         ;;
       --max-age)
@@ -121,6 +128,8 @@ debug() {
   fi
 }
 
+
+
 ###
 # Get a list of instances from AWS if not explicitly specified
 __get_instance_list() {
@@ -132,8 +141,7 @@ __get_instance_list() {
 
 __get_volumes_for_instance() {
   instance="$1"
-  volume_list=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values='${instance}'" --query Volumes[].VolumeId --output text)
-  echo $volume_list
+  aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values='${instance}'" --query Volumes[].VolumeId --output text
 }
 
 ###
@@ -143,6 +151,11 @@ __get_volumes_for_instances() {
     debug "Getting volumes for '$instance'"
     volume_list=$(__get_volumes_for_instance "$instance")
     volume_list=($volume_list)
+
+    for volume in "${volume_list[@]}"; do
+      debug "Found volume ${volume} for ${instance}"
+    done
+
     VOLUMES+=( "${volume_list[@]}" )
   done
 }
@@ -213,8 +226,20 @@ __filter_snapshot_by_tags() {
   return 0
 }
 
+###
+# During cleanup, snapshots must have -all- default tags.
+__filter_snapshot_by_required_tags() {
+  for tag in $EXTRA_TAG_LIST; do
+    IFS='=' read -r key value <<< "${tag}"
+    if [[ -z "${SNAPSHOT_TAGS[$key]}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 __get_instance_for_volume() {
-  volume=$1
+  volume="$1"
   aws ec2 describe-volumes --output=text --volume-ids "${volume}" --query 'Volumes[0].Attachments[0].InstanceId'
 }
 
@@ -260,6 +285,20 @@ __add_tagmap_to_snapshot() {
   done
 }
 
+__create_snapshot() {
+  name="$1"
+  volume="$2"
+  aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query SnapshotId  
+}
+
+__add_extra_tags_to_snapshot() {
+  snapshot=$1
+  for tag in $EXTRA_TAG_LIST; do
+    IFS='=' read -r key value <<< "${tag}"
+    __add_tag_to_snapshot "${snapshot}" "${key}" "${value}"
+  done
+}
+
 __make_snapshot_for_volume() {
   volume=$1
 
@@ -267,24 +306,14 @@ __make_snapshot_for_volume() {
   device_name=$(__get_device_for_volume "${volume}")
   name=$(__build_name_for_volume "${instance_name}" "${device_name}")
   
-  snapshot_id=$(aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query SnapshotId)
+  snapshot_id=$(__create_snapshot "${name}" "${volume}")
   
-  __add_tag_to_snapshot "${snapshot_id}" 'CreatedBy' 'AutomatedBackup'
+  __add_extra_tags_to_snapshot "${snapshot_id}" 
   __add_tagmap_to_snapshot "${volume}" "${snapshot_id}"
 }
 
-# Possibilities:
-# - nothing given
-#   - get everything
-# - volume(s) given
-#   - limit to those volumes 
-# - instance(s) given
-#   - limit to those instances
-# - instances(s) and volume(s) given
-#   - add them
-####
-# Limit to items matching "tags"
-
+###
+# Creates snapshots of all known volumes
 __snapshot_volumes() {
   for volume in "${VOLUMES[@]}"; do
     log "Discovered volume $volume"
@@ -339,6 +368,11 @@ __cleanup_snapshots_for_volume() {
     debug "Beginning check of ${snapshot}"
     __read_snapshot_tags "${snapshot}"
 
+    if __filter_snapshot_by_required_tags "${snapshot}"; then
+      debug "'${snapshot}' was discovered but is missing a required tag"
+      continue
+    fi
+
     if __filter_snapshot_by_tags "${snapshot}"; then
       debug "'${snapshot}' was discovered but filtered by tag"
       continue
@@ -374,7 +408,7 @@ Commands:
   maintain               Performs snapshots, then runs cleanup
 
 [all]
-  --help                 This message!
+  --help                 Shows the help message
   --volume               An explicit list of volumes to operate on
   --instance             List of instances to check for volumes
   --tag-list             List of tags to check volumes for snapshotting
