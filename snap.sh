@@ -118,7 +118,7 @@ __parse_retention_date() {
 ###
 # Simple logging
 log() {
-  echo "[$(date +"%Y-%m-%d"+"%T")]: $*"
+  >&2 echo "[$(date +"%Y-%m-%d"+"%T")]: $*"
 }
 
 ###
@@ -126,6 +126,22 @@ log() {
 debug() {
   if [[ ! -z "${DEBUG}" ]]; then
     log "$*"
+  fi
+}
+
+trace() {
+  if [[ -n "${TRACE}" ]]; then
+    log "$*"
+  fi  
+}
+
+__is_ec2() {
+  if [[ -e /sys/hypervisor/uuid && $(cat /sys/hypervisor/uuid) =~ "ec2*" ]] && $(curl http://169.254.169.254/latest/meta-data/instance-id); then
+    debug "Current machine is an EC2 instance"
+    return 0
+  else
+    debug "Current machine is not an EC2 instance"
+    return 1
   fi
 }
 
@@ -217,6 +233,7 @@ __filter_snapshot_by_tags() {
     IFS='=' read -r key value <<< "${tag}"
     if [[ "${SNAPSHOT_TAGS[$key]}" ]]; then
       if [[ -z "${value}" ]] || [[ "${SNAPSHOT_TAGS[$key]}" == "${value}" ]]; then
+        trace "Found a matching tag for ${SNAPSHOT_TAGS[$key]}"
         return 1
       fi
     fi
@@ -254,7 +271,11 @@ __add_tag_to_snapshot() {
   tag_name="$2"
   tag_value="$3"
 
-  aws ec2 create-tags --resource "${snapshot_id}" --tags "Key='${tag_name}',Value='${tag_value}'"
+  if [[ -n "${DRY_RUN}" ]]; then 
+    debug "Dry-run enabled: pretending to add '${tag_value}' as '${tag_name}' to '${snapshot_id}'"
+  else
+    aws ec2 create-tags --resource "${snapshot_id}" --tags "Key='${tag_name}',Value='${tag_value}'"
+  fi
 }
 
 ###
@@ -274,7 +295,7 @@ __add_tagmap_to_snapshot() {
       continue
     fi
 
-    log "Adding '${tag_key}' to '${snapshot_id}' as '${tag_value}'"
+    debug "Adding tag '${tag_value}' as '${tag_key}' to ${snapshot_id} "
 
     __add_tag_to_snapshot "${snapshot_id}" "${tag_key}" "${tag_value}"
   done
@@ -283,7 +304,14 @@ __add_tagmap_to_snapshot() {
 __create_snapshot() {
   name="$1"
   volume="$2"
-  aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query 'SnapshotId'
+  
+  if [[ -n "${DRY_RUN}" ]]; then
+    snapshot_name="fake-snapshot-${name}-${volume}"
+    debug "dry-run enabled - fake snapshot name is ${snapshot_name}"
+    echo "${snapshot_name}"
+  else
+    aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query 'SnapshotId'
+  fi
 }
 
 __add_extra_tags_to_snapshot() {
@@ -319,17 +347,12 @@ __snapshot_volumes() {
     __read_volume_tags "${volume}"
 
     if __filter_volume_by_tag "${volume}"; then
-      log "${volume} was discovered but filtered via tag"
+      debug "${volume} was discovered but filtered via tag"
       continue
     fi
 
-    log "Snapshotting $volume..."
-    
-    if [[ ! -z "${DRY_RUN}" ]]; then
-      debug "dry-run enabled, skipping real work"
-      continue
-    fi
-    
+    log "Snapshotting ${volume}"
+   
     __make_snapshot_for_volume "${volume}"
   done  
 }
@@ -339,7 +362,7 @@ __filter_snapshot_by_date() {
   snapshot_date=$(aws ec2 describe-snapshots --output=text --snapshot-ids "${snapshot}" --query Snapshots[].StartTime)
   snapshot_date_epoch=$(date -d "${snapshot_date}" +'%s')
 
-  if (( $snapshot_date_epoch <= $MAX_DATE )); then
+  if (( "${snapshot_date_epoch}" <= "${MAX_DATE}" )); then
     return 1;
   else
     return 0;
@@ -348,8 +371,8 @@ __filter_snapshot_by_date() {
 
 __remove_snapshot() {
   snapshot="$1"
-  if [[ ! -z "${DRY_RUN}" ]]; then
-    debug "... skipping actual delete due to dry-run"
+  if [[ -n "${DRY_RUN}" ]]; then
+    debug "... skipping actual delete of '${snapshot}' due to dry-run"
   else
     aws ec2 delete-snapshot --snapshot-id "${snapshot}"
   fi
