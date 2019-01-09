@@ -46,4 +46,4 @@ Finally, if tags are given via `--tag-list`, remove any item that does not match
 If a tag map is given, the value of the tag is copied from the volume to the newly-created snapshot. A new name for the tag may be given as a key-value pair.
 
 ## Config File
-A config file can be given via an `AWS_CONFIG` environment variable.
+A config file can be given via an `AWS_CONFIG` environment variable. This provides the ability to import the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, as well as set some of the script defaults.
