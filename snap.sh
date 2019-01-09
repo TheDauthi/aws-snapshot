@@ -4,7 +4,7 @@ if [[ -z "${AWS_CONFIG_PATH}" ]]; then
   AWS_CONFIG_PATH="$(cd -P -- "$(dirname -- "$0")" && pwd -P)"
 fi
 
-if [[ -z "AWS_CONFIG" ]]; then
+if [[ -z "${AWS_CONFIG}" ]]; then
   AWS_CONFIG="${AWS_CONFIG_PATH}/.config"
 fi
 
