@@ -18,6 +18,7 @@ INSTANCES=()
 TAGLIST=()
 TAGMAP=()
 SNAPSHOT_FILTERS=()
+FROZEN_MOUNTS=()
 
 MAX_AGE=${MAX_AGE:-'- 7 days'}
 MAX_DATE=${MAX_DATE:-}
@@ -121,14 +122,14 @@ __parse_retention_date() {
 ###
 # Simple logging
 log() {
-  echo "[$(date +"%Y-%m-%d"+"%T")]: $*"
+  >&2 echo "[$(date +"%Y-%m-%d"+"%T")]: $*"
 }
 
 ###
 # Log only if debug is set
 debug() {
   if [[ ! -z "${DEBUG}" ]]; then
-    log "$*"
+    >&2 log "$*"
   fi
 }
 
@@ -137,17 +138,53 @@ __get_local_aws_id() {
   echo i-03be67efc82c8c1e3
 }
 
+__is_ec2() {
+  if [[ -e /sys/hypervisor/uuid && $(cat /sys/hypervisor/uuid) =~ "ec2*" ]] && $(curl http://169.254.169.254/latest/meta-data/instance-id); then
+    return 0
+  else
+    return 1
+  fi
+}
+
+####################################
+######### Volume Freezing ##########
+####################################
 __get_local_filesystems() {
   __get_volumes_for_instance "$(__get_local_aws_id)"
 }
 
-__prepare_volume_for_snapshot() {
+__fsfreeze_volumes() {
   volume=$1
   device=$2
-  
-  if [[ ! -z "${FREEZE}" && "$(__get_local_filesystems)" == *"${volume}"* ]]; then
-    debug "would freeze the device"
+  if __is_ec2; then
+    if [[ ! -z "${FREEZE}" && "$(__get_local_filesystems)" == *"${volume}"* ]]; then
+      mount_target=$(__get_mount_target "${device}")
+      FROZEN_MOUNTS+=("${mount_target}")
+      debug "would freeze the device ${device} at ${mount_target}"
+    fi
   fi
+}
+
+__get_mount_target() {
+  device=$1
+  findmnt -o TARGET "${device}"
+}
+
+__unfsfreeze_volume() {
+  device=$1
+  mount_target=$(__get_mount_target "${device}")
+  
+  if [[ " ${FROZEN_MOUNTS[@]} " =~ " ${mount_target} " ]]; then
+    debug "Unfreezing ${mount_target}"
+    fsfreeze --unfreeze "${mount_target}"
+  fi
+}
+
+__unfsfreeze_all() {
+  for mount_target in "${FROZEN_MOUNTS[@]}"; do
+    debug "Unfreezing ${mount_target}"
+    fsfreeze --unfreeze "${mount_target}"
+  done  
 }
 
 ###
@@ -324,9 +361,12 @@ __make_snapshot_for_volume() {
 
   name=$(__build_name_for_volume "${instance_name}" "${device_name}")
 
+  __fsfreeze_volumes "${volume}" "${device_name}"
+
   snapshot_id=$(__create_snapshot "${name}" "${volume}")
 
-  
+  __unfsfreeze_volume "${device_name}"
+
   __add_extra_tags_to_snapshot "${snapshot_id}" 
   __add_tagmap_to_snapshot "${volume}" "${snapshot_id}"
 }
@@ -417,10 +457,8 @@ __cleanup_volumes() {
 }
 
 finish() {
-  :
+  __unfsfreeze_all
 }
-
-trap finish EXIT
 
 usage() {
   cat <<HELP_USAGE
@@ -455,9 +493,12 @@ Commands:
 HELP_USAGE
 }
 
+trap finish EXIT
+
 __snapshot() {
   __get_instance_list
   __get_volumes_for_instances
+
   # __snapshot_volumes
   __get_local_filesystems
 }
