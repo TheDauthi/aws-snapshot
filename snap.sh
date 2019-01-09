@@ -22,6 +22,7 @@ SNAPSHOT_FILTERS=()
 MAX_AGE=${MAX_AGE:-'- 7 days'}
 MAX_DATE=${MAX_DATE:-}
 DEBUG='1'
+
 export AWS_DEFAULT_OUTPUT=text
 
 declare -A VOLUME_TAGS
@@ -141,7 +142,7 @@ __get_instance_list() {
 
 __get_volumes_for_instance() {
   instance="$1"
-  aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values='${instance}'" --query Volumes[].VolumeId --output text
+  aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values='${instance}'" --query 'Volumes[].VolumeId' --output text
 }
 
 ###
@@ -238,20 +239,16 @@ __filter_snapshot_by_required_tags() {
   return 1
 }
 
-__get_instance_for_volume() {
+__get_volume_data() {
   volume="$1"
-  aws ec2 describe-volumes --output=text --volume-ids "${volume}" --query 'Volumes[0].Attachments[0].InstanceId'
-}
-
-__get_device_for_volume() {
-  volume=$1
-  aws ec2 describe-volumes --output=text --volume-ids "${volume}" --query 'Volumes[0].Attachments[0].Device'
+  aws ec2 describe-volumes --output=text --volume-ids "${volume}" --query 'Volumes[0].Attachments[0].[InstanceId,Device]'
 }
 
 __build_name_for_volume() {
   instance_name="$1"
   device_name="$2"
-  snapshot_tag="${instance_name}-${device_name}-backup-[$(date +'%Y-%m-%d %H:%M:%S')]"
+  snapshot_tag="[${instance_name}]-[${device_name}]-backup-[$(date +'%Y-%m-%d %H:%M:%S')]"
+  echo "${snapshot_tag}"
 }
 
 __add_tag_to_snapshot() {
@@ -288,11 +285,11 @@ __add_tagmap_to_snapshot() {
 __create_snapshot() {
   name="$1"
   volume="$2"
-  aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query SnapshotId  
+  aws ec2 create-snapshot --output=text --description "${name}" --volume-id "${volume}" --query 'SnapshotId'
 }
 
 __add_extra_tags_to_snapshot() {
-  snapshot=$1
+  snapshot="$1"
   for tag in $EXTRA_TAG_LIST; do
     IFS='=' read -r key value <<< "${tag}"
     __add_tag_to_snapshot "${snapshot}" "${key}" "${value}"
@@ -300,13 +297,16 @@ __add_extra_tags_to_snapshot() {
 }
 
 __make_snapshot_for_volume() {
-  volume=$1
+  volume="$1"
 
-  instance_name=$(__get_instance_for_volume "${volume}")
-  device_name=$(__get_device_for_volume "${volume}")
+  volume_data=$(__get_volume_data "${volume}")
+
+  read -r instance_name device_name <<< "${volume_data}"
+
   name=$(__build_name_for_volume "${instance_name}" "${device_name}")
-  
+
   snapshot_id=$(__create_snapshot "${name}" "${volume}")
+
   
   __add_extra_tags_to_snapshot "${snapshot_id}" 
   __add_tagmap_to_snapshot "${volume}" "${snapshot_id}"
@@ -388,7 +388,7 @@ __cleanup_snapshots_for_volume() {
 
 __get_snapshots_for_volume() {
   volume_id="$1"
-  aws ec2 describe-snapshots --output=text --filters "Name=volume-id,Values='${volume_id}'" --query Snapshots[].SnapshotId
+  aws ec2 describe-snapshots --output=text --filters "Name=volume-id,Values='${volume_id}'" --query 'Snapshots[].SnapshotId'
 }
 
 __cleanup_volumes() {
@@ -403,9 +403,9 @@ usage() {
   $0  [options] ... command
 
 Commands:
-  snapshot               Takes a snapshot of volumes matching the given filters
+  backup                 Takes snapshots of volumes matching the given filters
   cleanup                Cleans up old snapshots
-  maintain               Performs snapshots, then runs cleanup
+  cycle                  Performs snapshots, then runs cleanup
 
 [all]
   --help                 Shows the help message
@@ -415,7 +415,7 @@ Commands:
   --dry-run              Don't actually do anything!
   --debug                Show debug output
 
-[snapshot]
+[backup]
   Takes a snapshot of a list of volumes. The list of volumes can be given via --volume,
   or found by searching AWS volumes.
   --tag-map              List of tags to clone from volume to snapshot
@@ -443,7 +443,7 @@ __cleanup() {
   __cleanup_volumes
 }
 
-__maintain() {
+__cycle() {
   __parse_retention_date
   __get_instance_list
   __get_volumes_for_instances
@@ -455,13 +455,13 @@ __parse_commandline "$@"
 
 COMMAND="${POSITIONAL[0]}"
 
-if [[ "${COMMAND}" == "snapshot" ]]; then
+if [[ "${COMMAND}" == "backup" ]]; then
   __snapshot
 elif [[ "${COMMAND}" == "cleanup" ]]; then
   __cleanup
-elif [[ "${COMMAND}" == "maintain" ]]; then
-  __maintain
+elif [[ "${COMMAND}" == "cycle" ]]; then
+  __cycle
 else
-  echo "Unknown command: must give one of [snapshot,cleanup,maintain]"
+  echo "Unknown command: must give one of [backup,cleanup,cycle]"
 fi
 
