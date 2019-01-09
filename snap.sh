@@ -93,20 +93,20 @@ __parse_retention_date() {
   # If max-date is set, just convert it to epoch
   # Otherwise, we need to parse from the "max age"
   # We want to accept: 6 6D '6 days'
-  if [[ ! -z "$MAX_DATE" ]]; then
+  if [[ ! -z "${MAX_DATE}" ]]; then
     MAX_DATE=$(date +%s --date "${MAX_DATE}")
-  elif [[ $MAX_AGE =~ ^[0-9]+$ ]]; then
+  elif [[ "${MAX_AGE}" =~ ^[0-9]+$ ]]; then
     MAX_DATE=$(date +%s --date "${MAX_AGE} days ago")
-  elif [[ $MAX_AGE =~ ^[0-9]+[dD]$ ]]; then
+  elif [[ "${MAX_AGE}" =~ ^[0-9]+[dD]$ ]]; then
     MAX_AGE="${MAX_AGE//[^0-9]/}"
     MAX_DATE=$(date +%s --date "${MAX_AGE} days ago")
-  elif [[ $MAX_AGE =~ ^[0-9]+[wW]$ ]]; then
+  elif [[ "${MAX_AGE}" =~ ^[0-9]+[wW]$ ]]; then
     MAX_AGE="${MAX_AGE//[^0-9]/}"
     MAX_DATE=$(date +%s --date "${MAX_AGE} weeks ago")
-  elif [[ $MAX_AGE =~ ^[0-9]+[mM]$ ]]; then
+  elif [[ "${MAX_AGE}" =~ ^[0-9]+[mM]$ ]]; then
     MAX_AGE="${MAX_AGE//[^0-9]/}"
     MAX_DATE=$(date +%s --date "${MAX_AGE} months ago")
-  elif [[ $MAX_AGE =~ ^[0-9]+[yY]$ ]]; then
+  elif [[ "${MAX_AGE}" =~ ^[0-9]+[yY]$ ]]; then
     MAX_AGE="${MAX_AGE//[^0-9]/}"
     MAX_DATE=$(date +%s --date "${MAX_AGE} years ago")
   else
@@ -124,12 +124,10 @@ log() {
 ###
 # Log only if debug is set
 debug() {
-  if [[ ! -z "$DEBUG" ]]; then
+  if [[ ! -z "${DEBUG}" ]]; then
     log "$*"
   fi
 }
-
-
 
 ###
 # Get a list of instances from AWS if not explicitly specified
@@ -149,8 +147,8 @@ __get_volumes_for_instance() {
 # Get a list of volumes from AWS if not explicitly specified
 __get_volumes_for_instances() {
   for instance in "${INSTANCES[@]}"; do
-    debug "Getting volumes for '$instance'"
-    volume_list=$(__get_volumes_for_instance "$instance")
+    debug "Getting volumes for '${instance}'"
+    volume_list=$(__get_volumes_for_instance "${instance}")
     volume_list=($volume_list)
 
     for volume in "${volume_list[@]}"; do
@@ -271,7 +269,7 @@ __add_tagmap_to_snapshot() {
     tag_key="${value:-$key}"
     tag_value="${VOLUME_TAGS[$key]}"
     
-    if [[ -z "$tag_value" ]]; then
+    if [[ -z "${tag_value}" ]]; then
       log "Not copying empty value from tag '${volume}:${tag_key}'"
       continue
     fi
