@@ -79,6 +79,9 @@ __parse_commandline() {
       --debug)
         DEBUG=1
         ;;
+      --freeze)
+        FREEZE=1
+        ;;
       * )
         POSITIONAL+=("$1")
         ;;
@@ -126,6 +129,24 @@ log() {
 debug() {
   if [[ ! -z "${DEBUG}" ]]; then
     log "$*"
+  fi
+}
+
+__get_local_aws_id() {
+  # curl http://169.254.169.254/latest/meta-data/instance-id
+  echo i-03be67efc82c8c1e3
+}
+
+__get_local_filesystems() {
+  __get_volumes_for_instance "$(__get_local_aws_id)"
+}
+
+__prepare_volume_for_snapshot() {
+  volume=$1
+  device=$2
+  
+  if [[ ! -z "${FREEZE}" && "$(__get_local_filesystems)" == *"${volume}"* ]]; then
+    debug "would freeze the device"
   fi
 }
 
@@ -395,6 +416,12 @@ __cleanup_volumes() {
   done
 }
 
+finish() {
+  :
+}
+
+trap finish EXIT
+
 usage() {
   cat <<HELP_USAGE
 
@@ -431,7 +458,8 @@ HELP_USAGE
 __snapshot() {
   __get_instance_list
   __get_volumes_for_instances
-  __snapshot_volumes
+  # __snapshot_volumes
+  __get_local_filesystems
 }
 
 __cleanup() {
