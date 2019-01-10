@@ -47,3 +47,9 @@ If a tag map is given, the value of the tag is copied from the volume to the new
 
 ## Config File
 A config file can be given via an `AWS_CONFIG` environment variable. This provides the ability to import the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, as well as set some of the script defaults.
+
+
+# Development
+
+### Filtering Functions
+Filtering functions return 0 if the filter is successful, and 1 otherwise
