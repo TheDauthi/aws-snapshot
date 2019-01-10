@@ -143,8 +143,10 @@ trace() {
   fi  
 }
 
+###
+# Checks to see if the machine the script is running on is an EC2 instance
 __is_ec2() {
-  if [[ -e /sys/hypervisor/uuid && $(cat /sys/hypervisor/uuid) =~ "ec2*" ]] && $(curl http://169.254.169.254/latest/meta-data/instance-id); then
+  if command wget --timeout=0.1 --tries=1 -q http://169.254.169.254/latest/meta-data/instance-id > /dev/null; then
     debug "Current machine is an EC2 instance"
     return 0
   else
