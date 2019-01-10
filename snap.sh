@@ -121,6 +121,7 @@ __parse_retention_date() {
     # Well, hopefully 'date' can get-er-done
     MAX_DATE=$(date +%s --date "${MAX_AGE}")
   fi
+  debug "MAX_DATE is '${MAX_DATE}'"
 }
 
 ###
