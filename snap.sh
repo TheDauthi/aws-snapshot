@@ -371,11 +371,16 @@ __snapshot_volumes() {
   done  
 }
 
+__get_date_for_snapshot() {
+  snapshot="$1"
+  aws ec2 describe-snapshots --output=text --snapshot-ids "${snapshot}" --query Snapshots[].StartTime
+}
+
 ####
 # Check to see if the given snapshot is older than the MAX_DATE
 __filter_snapshot_by_date() {
   snapshot="$1"
-  snapshot_date=$(aws ec2 describe-snapshots --output=text --snapshot-ids "${snapshot}" --query Snapshots[].StartTime)
+  snapshot_date=$(__get_date_for_snapshot "${snapshot}")
   snapshot_date_epoch=$(date -d "${snapshot_date}" +'%s')
 
   if (( "${snapshot_date_epoch}" <= "${MAX_DATE}" )); then
