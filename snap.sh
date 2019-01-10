@@ -12,23 +12,31 @@ if [[ -f "${AWS_CONFIG}" ]]; then
   . "${AWS_CONFIG}"
 fi
 
+# Ensure everything has a nice, pretty default
 DEFAULT_TAGS="${DEFAULT_TAGS-CreatedBy=AutomatedBackup}"
-VOLUMES=()
-INSTANCES=()
-TAGLIST=()
-TAGMAP=()
-SNAPSHOT_FILTERS=()
+EXTRA_TAG_LIST="${DEFAULT_TAGS}"
 
+VOLUMES="${VOLUMES:-}"
+INSTANCES="${INSTANCES:-}"
+TAGLIST="${TAGLIST:-}"
+TAGMAP="${TAGMAP:-}"
+SNAPSHOT_FILTERS="${SNAPSHOT_FILTERS:-}"
 MAX_AGE=${MAX_AGE:-'- 7 days'}
-MAX_DATE=${MAX_DATE:-}
-DEBUG='1'
+MAX_DATE="${MAX_DATE:-}"
+DEBUG="${DEBUG:-1}"
+
+# Convert stuff to arrays.
+# At some point, we can make all this sh-compatible...
+VOLUMES=($VOLUMES)
+INSTANCES=($INSTANCES)
+TAGLIST=($TAGLIST)
+TAGMAP=($TAGMAP)
+SNAPSHOT_FILTERS=($SNAPSHOT_FILTERS)
 
 export AWS_DEFAULT_OUTPUT=text
 
 declare -A VOLUME_TAGS
 declare -A SNAPSHOT_TAGS
-
-EXTRA_TAG_LIST="${DEFAULT_TAGS}"
 
 __parse_commandline() {
   POSITIONAL=()
