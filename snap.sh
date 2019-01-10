@@ -164,6 +164,8 @@ __get_instance_list() {
   fi
 }
 
+###
+# Given an instance, retrieve all known volumes
 __get_volumes_for_instance() {
   instance="$1"
   aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values='${instance}'" --query 'Volumes[].VolumeId' --output text
@@ -185,6 +187,8 @@ __get_volumes_for_instances() {
   done
 }
 
+###
+# Tries to read 
 __read_volume_tags() {
   volume="$1"
 
@@ -367,6 +371,8 @@ __snapshot_volumes() {
   done  
 }
 
+####
+# Check to see if the given snapshot is older than the MAX_DATE
 __filter_snapshot_by_date() {
   snapshot="$1"
   snapshot_date=$(aws ec2 describe-snapshots --output=text --snapshot-ids "${snapshot}" --query Snapshots[].StartTime)
@@ -379,6 +385,8 @@ __filter_snapshot_by_date() {
   fi
 }
 
+####
+# Wrapper for ec2 snapshot removal
 __remove_snapshot() {
   snapshot="$1"
   if [[ -n "${DRY_RUN}" ]]; then
