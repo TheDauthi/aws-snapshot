@@ -24,6 +24,7 @@ SNAPSHOT_FILTERS="${SNAPSHOT_FILTERS:-}"
 MAX_AGE=${MAX_AGE:-'- 7 days'}
 MAX_DATE="${MAX_DATE:-}"
 DEBUG="${DEBUG:-1}"
+MAX_RUNNING_SNAPSHOTS="${MAX_RUNNING_SNAPSHOTS:-0}"
 
 # Convert stuff to arrays.
 # At some point, we can make all this sh-compatible...
@@ -86,6 +87,10 @@ __parse_commandline() {
         ;;
       --debug)
         DEBUG=1
+        ;;
+      --max-running-snapshots)
+        MAX_RUNNING_SNAPSHOTS="$2"
+        shift
         ;;
       * )
         POSITIONAL+=("$1")
@@ -155,6 +160,11 @@ __is_ec2() {
     debug "Current machine is not an EC2 instance"
     return 1
   fi
+}
+
+__get_snapshot_statuses() {
+  volume_id="$1"
+  aws ec2 describe-snapshots --filters "Name=volume-id,Values='${volume_id}'" --query 'Snapshots[].[SnapshotId,State]' --output text
 }
 
 ###
@@ -233,6 +243,22 @@ __filter_volume_by_tag() {
   done
 
   return 0
+}
+
+__filter_volume_by_snapshot_status() {
+  volume="$1"
+
+  if [[ "${MAX_RUNNING_SNAPSHOTS}" == "0" ]]; then
+    return 1
+  fi
+  
+  pending_count=$(__get_snapshot_statuses ${volume} | grep pending | wc -l)
+
+  if (( "${pending_count}" < "${MAX_RUNNING_SNAPSHOTS}" )); then
+    return 1
+  else
+    return 0
+  fi
 }
 
 ###
@@ -364,6 +390,11 @@ __snapshot_volumes() {
 
     if __filter_volume_by_tag "${volume}"; then
       debug "${volume} was discovered but filtered via tag"
+      continue
+    fi
+
+    if __filter_volume_by_snapshot_status "${volume}"; then
+      debug "${volume} was found but has too many pending snapshots"
       continue
     fi
 
