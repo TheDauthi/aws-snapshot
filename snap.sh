@@ -126,8 +126,9 @@ __parse_retention_date() {
     # Well, hopefully 'date' can get-er-done
     MAX_DATE=$(date +%s --date "${MAX_AGE}")
   fi
-
-  debug "MAX_DATE is '${MAX_DATE}'"
+ 
+  AWS_FORMATTED_DATETIME=$(date --utc -d @"${MAX_DATE}" +'%Y-%m-%dT%H:%M:%SZ')
+  debug "MAX_DATE is '${MAX_DATE}' ($(date -d  @"${MAX_DATE}" +'%Y-%m-%d %H:%M:%S'))"
 }
 
 ###
@@ -148,6 +149,10 @@ trace() {
   if [[ -n "${TRACE}" ]]; then
     log "$*"
   fi  
+}
+
+__join() {
+   local d=$1; shift; echo -n "$1"; shift; printf "%s" "${@/#/$d}";
 }
 
 ###
@@ -438,8 +443,7 @@ __cleanup_snapshots_for_volume() {
   volume_id="$1"
   
   debug "Beginning check of volume: '${volume_id}'"
-  
-  snapshot_list=$(__get_snapshots_for_volume "${volume_id}")
+  snapshot_list=$(__get_snapshots_for_volume "${volume_id}" "StartTime<='${AWS_FORMATTED_DATETIME}'")
   
   for snapshot in $snapshot_list; do
     debug "Beginning check of ${snapshot}"
@@ -464,8 +468,14 @@ __cleanup_snapshots_for_volume() {
 }
 
 __get_snapshots_for_volume() {
-  volume_id="$1"
-  aws ec2 describe-snapshots --output=text --filters "Name=volume-id,Values='${volume_id}'" --query 'Snapshots[].SnapshotId'
+  volume_id="$1"; shift
+
+  if [[ ! -z "$@" ]]; then
+    local additional_filters=$(printf '?'; __join ' && ' "$@")
+    log  "additional_filters: $additional_filters"
+  fi
+  # ${snapshot_filter}
+  aws ec2 describe-snapshots --output=text --filters "Name=volume-id,Values='${volume_id}'" --query "Snapshots[${additional_filters}].SnapshotId"
 }
 
 __cleanup_volumes() {
